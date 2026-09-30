@@ -1,0 +1,18 @@
+version: "3.9"
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: mediconnect-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: mediconnect
+      POSTGRES_PASSWORD: mediconnect_pw
+      POSTGRES_DB: mediconnect
+    ports:
+      - "5332:5432"
+    volumes:
+      - mediconnect_pgdata:/var/lib/postgresql/data
+      - ./docker/init-test-db.sql:/docker-entrypoint-initdb.d/init-test-db.sql
+
+volumes:
+  mediconnect_pgdata:

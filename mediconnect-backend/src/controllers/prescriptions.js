@@ -1,0 +1,112 @@
+const db = require("../db");
+const { checkPrescriptionSafety } = require("../services/drugSafety");
+const { startDocument, footer } = require("../services/pdfService");
+const { logAction, notify } = require("../middleware/audit");
+const { ApiError } = require("../middleware/errorHandler");
+
+async function patientOr404(patientId) {
+  const { rows } = await db.query("SELECT * FROM patients WHERE id = $1", [patientId]);
+  if (!rows[0]) throw new ApiError(404, "Patient not found.");
+  return rows[0];
+}
+
+async function list(req, res, next) {
+  try {
+    const patient = await patientOr404(req.params.patientId);
+    if (req.user.role === "Patient" && patient.user_id !== req.user.id) {
+      throw new ApiError(403, "You do not have access to this patient record.");
+    }
+    const { rows } = await db.query(
+      "SELECT * FROM prescriptions WHERE patient_id = $1 ORDER BY prescribed_on DESC",
+      [req.params.patientId]
+    );
+    res.json({ prescriptions: rows });
+  } catch (err) { next(err); }
+}
+
+// POST /api/patients/:patientId/prescriptions  { medication, override }
+// If a critical warning fires, the write is refused (409) unless override=true
+// is explicitly sent — that override is itself logged with the doctor's name.
+async function create(req, res, next) {
+  try {
+    const patient = await patientOr404(req.params.patientId);
+    const { medication, override } = req.body;
+    if (!medication) throw new ApiError(400, "Medication name is required.");
+
+    const activeRxRes = await db.query(
+      "SELECT medication FROM prescriptions WHERE patient_id = $1 AND status = 'Active'",
+      [patient.id]
+    );
+    const warnings = checkPrescriptionSafety(medication, patient.allergies, activeRxRes.rows);
+    const hasCritical = warnings.some((w) => w.level === "critical");
+
+    if (hasCritical && !override) {
+      return res.status(409).json({ warnings, requiresOverride: true });
+    }
+
+    const { rows } = await db.query(
+      `INSERT INTO prescriptions (patient_id, doctor_id, medication, status, override_ack)
+       VALUES ($1, $2, $3, 'Active', $4) RETURNING *`,
+      [patient.id, req.user.id, medication, Boolean(hasCritical && override)]
+    );
+    const action = hasCritical && override
+      ? `Overrode safety warning and prescribed ${medication} for ${patient.name}`
+      : `Prescribed ${medication} for ${patient.name}`;
+    await logAction(req.user, action, "prescription", rows[0].id);
+    if (patient.user_id) await notify(patient.user_id, `A new prescription (${medication}) was added to your record.`);
+
+    res.status(201).json({ prescription: rows[0], warnings });
+  } catch (err) { next(err); }
+}
+
+// PATCH /api/patients/:patientId/prescriptions/:id  { status: 'Discontinued' }
+async function update(req, res, next) {
+  try {
+    const patient = await patientOr404(req.params.patientId);
+    const { status } = req.body;
+    if (!["Active", "Discontinued"].includes(status)) throw new ApiError(400, "Invalid status.");
+    const { rows } = await db.query(
+      "UPDATE prescriptions SET status = $1 WHERE id = $2 AND patient_id = $3 RETURNING *",
+      [status, req.params.id, patient.id]
+    );
+    if (!rows[0]) throw new ApiError(404, "Prescription not found.");
+    await logAction(req.user, `Set prescription status to ${status} for ${patient.name}`, "prescription", rows[0].id);
+    res.json({ prescription: rows[0] });
+  } catch (err) { next(err); }
+}
+
+// GET /api/patients/:patientId/prescriptions/:id/pdf — real downloadable
+// prescription document, authorized for the prescribing doctor, the
+// patient it belongs to, or an administrator.
+async function downloadPdf(req, res, next) {
+  try {
+    const patient = await patientOr404(req.params.patientId);
+    if (req.user.role === "Patient" && patient.user_id !== req.user.id) {
+      throw new ApiError(403, "You do not have access to this prescription.");
+    }
+    const { rows } = await db.query(
+      `SELECT rx.*, doc.name AS doctor_name
+       FROM prescriptions rx JOIN users doc ON doc.id = rx.doctor_id
+       WHERE rx.id = $1 AND rx.patient_id = $2`,
+      [req.params.id, patient.id]
+    );
+    const rx = rows[0];
+    if (!rx) throw new ApiError(404, "Prescription not found.");
+
+    const doc = startDocument(res, { filename: `prescription-${rx.id}.pdf`, subtitle: "Prescription" });
+    doc.text(`Patient: ${patient.name}${patient.mrn ? " (" + patient.mrn + ")" : ""}`);
+    doc.text(`Prescribing doctor: ${rx.doctor_name}`);
+    doc.text(`Date: ${String(rx.prescribed_on).slice(0, 10)}`);
+    doc.moveDown(1);
+    doc.fontSize(14).fillColor("#12233B").text(`Medication: ${rx.medication}`);
+    doc.fontSize(10).fillColor("#1B2A22").moveDown(0.5);
+    doc.text(`Status: ${rx.status}`);
+    if (rx.override_ack) {
+      doc.fillColor("#B9762E").text("Note: prescribed with an explicit clinician override of an automated safety warning.");
+    }
+    footer(doc, "This prescription was generated by MediConnect and reflects the prescribing doctor's record.");
+    doc.end();
+  } catch (err) { next(err); }
+}
+
+module.exports = { list, create, update, downloadPdf };
