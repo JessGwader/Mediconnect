@@ -28,6 +28,10 @@ const supportChatRoutes = require("./routes/supportChat");
 const app = express();
 
 app.set("trust proxy", 1); // required for correct rate-limiting/secure cookies behind a reverse proxy
+app.set("etag", false); // every /api response is live, per-user data — an ETag/304 here just means
+// the client gets a bodiless response for a conditional GET, even after the server re-checked
+// something like a CamPay payment status, which looks exactly like a frozen "Pending" payment.
+app.use((req, res, next) => { res.set("Cache-Control", "no-store"); next(); });
 app.use(secureHeaders);
 app.use(corsPolicy);
 app.use(express.json({ limit: "2mb" }));

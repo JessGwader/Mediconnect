@@ -101,16 +101,43 @@ async function initiatePayment({ transactionId, amount, currency, phone, descrip
  */
 async function verifyPayment(providerReference) {
   const token = await getAccessToken();
-  const res = await fetch(`${BASE_URL}/api/transaction/status/${providerReference}/`, {
+  // NOTE: the correct path is /api/transaction/{reference}/ — no "/status"
+  // segment. That extra segment was hitting a route that doesn't exist on
+  // Campay's API, so every check came back as an error body with no
+  // "status" field at all — which is exactly the "undefined" status being
+  // logged, and why the UI looked permanently stuck on "Pending" even after
+  // a real success/failure on Campay's side.
+  const res = await fetch(`${BASE_URL}/api/transaction/${providerReference}/`, {
     headers: { Authorization: `Token ${token}` },
   });
-  const data = await res.json();
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    // A non-200 here (wrong path, bad reference, etc.) has no "status" to
+    // read — surface the real HTTP status instead of quietly treating it
+    // as "Pending", which is what made this bug invisible before.
+    console.warn(`Campay transaction lookup failed with HTTP ${res.status} for reference ${providerReference}:`, data);
+    return { status: "Pending", raw: data };
+  }
+  // Matched case-insensitively: Campay has been observed returning the
+  // status in different casing across API versions/sandboxes, and an exact
+  // uppercase-only match silently fell through to "Pending" forever — which
+  // looked exactly like a stuck payment even after a real success/failure.
   const statusMap = {
     SUCCESSFUL: "Successful",
+    SUCCESS: "Successful",
     FAILED: "Failed",
+    FAILURE: "Failed",
     PENDING: "Pending",
   };
-  return { status: statusMap[data.status] || "Pending", raw: data };
+  const rawStatus = String(data.status || "").toUpperCase();
+  const mapped = statusMap[rawStatus];
+  if (!mapped) {
+    // Don't silently guess on an unrecognized status — log it so it's
+    // debuggable, since defaulting to "Pending" is exactly the behavior
+    // that hides a provider-side change in terminology.
+    console.warn(`Campay returned an unrecognized status "${data.status}" for reference ${providerReference}:`, data);
+  }
+  return { status: mapped || "Pending", raw: data };
 }
 
 module.exports = { initiatePayment, verifyPayment };

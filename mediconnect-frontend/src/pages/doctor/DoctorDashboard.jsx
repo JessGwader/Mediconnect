@@ -32,15 +32,26 @@ export function DoctorDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [data, setData] = useState(null);
+  const [completingId, setCompletingId] = useState(null);
+
+  async function reload() {
+    try {
+      const d = await apiFetch("/api/doctors/me/dashboard");
+      setData(d);
+    } catch (err) { setError(err.message); }
+  }
 
   useEffect(() => {
-    (async () => {
-      try {
-        const d = await apiFetch("/api/doctors/me/dashboard");
-        setData(d);
-      } catch (err) { setError(err.message); } finally { setLoading(false); }
-    })();
+    (async () => { await reload(); setLoading(false); })();
   }, []);
+
+  async function markCompleted(appointmentId) {
+    setCompletingId(appointmentId);
+    try {
+      await apiFetch(`/api/appointments/${appointmentId}`, { method: "PATCH", body: { status: "Completed" } });
+      await reload();
+    } catch (err) { setError(err.message); } finally { setCompletingId(null); }
+  }
 
   if (loading) return <EmptyState>{t("common.loading")}</EmptyState>;
   if (!data) return <ErrorBanner message={error} />;
@@ -65,13 +76,20 @@ export function DoctorDashboard() {
           <Card title={t("dashboard.todays_schedule")} action={<Link to="/queue" className="btn ghost small">{t("dashboard.view_all")}</Link>}>
             {todayAppointments.length === 0 && <p style={{ fontSize: 13, color: "var(--slate)" }}>{t("dashboard.no_appointments_today")}</p>}
             {todayAppointments.map((a) => (
-              <Link key={a.id} to={`/patients/${a.patient_id}`} className="row-between" style={{ padding: "8px 0", borderBottom: "1px solid var(--line)", textDecoration: "none", color: "inherit" }}>
-                <div>
+              <div key={a.id} className="row-between" style={{ padding: "8px 0", borderBottom: "1px solid var(--line)" }}>
+                <Link to={`/patients/${a.patient_id}`} style={{ textDecoration: "none", color: "inherit" }}>
                   <div style={{ fontWeight: 600, fontSize: 13.5 }}>{a.patient_name}</div>
                   <div className="mono" style={{ fontSize: 11.5, color: "var(--slate-dim)" }}>{String(a.scheduled_time).slice(0, 5)}</div>
+                </Link>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <Pill tone={a.status === "Confirmed" ? "active" : a.status === "Completed" ? "neutral" : "warning"}>{t(`status.${a.status}`)}</Pill>
+                  {a.status === "Confirmed" && (
+                    <button className="btn small sage" disabled={completingId === a.id} onClick={() => markCompleted(a.id)}>
+                      {completingId === a.id ? "…" : `✅ ${t("dashboard.mark_completed", "Mark completed")}`}
+                    </button>
+                  )}
                 </div>
-                <Pill tone={a.status === "Confirmed" ? "active" : a.status === "Completed" ? "neutral" : "warning"}>{t(`status.${a.status}`)}</Pill>
-              </Link>
+              </div>
             ))}
           </Card>
 

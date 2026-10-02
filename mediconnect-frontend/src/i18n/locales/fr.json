@@ -1,5 +1,5 @@
 {
-  "app_name": "MediConnect.CM",
+  "app_name": "MediConnect",
   "nav": {
     "dashboard": "Tableau de bord",
     "find_doctor": "Trouver un médecin",
@@ -220,6 +220,7 @@
     "no_appointments_today": "Aucun rendez-vous prévu aujourd'hui.",
     "recent_consultations": "Consultations récentes",
     "no_recent_consultations": "Aucune consultation enregistrée pour l'instant.",
+    "mark_completed": "Marquer comme terminé",
     "no_diagnosis_yet": "Aucun diagnostic enregistré",
     "quick_links": "Liens rapides",
     "patient_queue": "File de patients",
@@ -417,7 +418,7 @@
     "city": "Ville",
     "phone": "Téléphone",
     "generate_insights": "Générer les analyses",
-    "generating_insights": "Interrogation de Gemini…",
+    "generating_insights": "Génération…",
     "insights_source_gemini": "Généré par Gemini",
     "insights_source_fallback": "Basé sur des règles (Gemini indisponible)",
     "view_verification_document": "Voir le document justificatif",

@@ -8,7 +8,7 @@ const { ApiError } = require("../middleware/errorHandler");
 // Flat consultation fee, in XAF. The amount is never taken from the client —
 // this closes a real gap the old CinetPay flow had, where the patient's
 // browser could send any amount it liked.
-const CONSULTATION_FEE_XAF = 5000;
+const CONSULTATION_FEE_XAF = 25;
 
 // A Cameroon mobile number: optional +237/237 prefix, then 9 digits starting 6.
 const PHONE_RE = /^(?:\+?237)?6\d{8}$/;
@@ -44,13 +44,27 @@ async function initiate(req, res, next) {
       [patient.id, appointmentId || null, amount, currency, transactionRef]
     );
 
-    const result = await initiatePayment({
-      transactionId: transactionRef,
-      amount,
-      currency,
-      phone: normalizedPhone,
-      description: appointmentId ? "MediConnect appointment payment" : "MediConnect payment",
-    });
+    // If Campay rejects the collect request (bad number, service down, etc.)
+    // the row inserted above must not be left behind as an orphaned
+    // "Pending" payment with no provider reference — getStatus() has nothing
+    // to re-verify for a row like that, so it would sit on "Pending" forever
+    // with no error ever surfacing again. Mark it Failed immediately instead.
+    let result;
+    try {
+      result = await initiatePayment({
+        transactionId: transactionRef,
+        amount,
+        currency,
+        phone: normalizedPhone,
+        description: appointmentId ? "MediConnect appointment payment" : "MediConnect payment",
+      });
+    } catch (err) {
+      await db.query(
+        "UPDATE payments SET status = 'Failed', provider_metadata = $1, updated_at = now() WHERE id = $2",
+        [JSON.stringify({ initiationError: err.message }), inserted.rows[0].id]
+      );
+      throw err;
+    }
 
     const withReference = await db.query(
       "UPDATE payments SET provider_metadata = $1, updated_at = now() WHERE id = $2 RETURNING *",

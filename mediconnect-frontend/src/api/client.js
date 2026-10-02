@@ -41,6 +41,14 @@ export async function apiFetch(path, { method = "GET", body, isForm = false } = 
       method,
       headers,
       credentials: "include",
+      // Every response here is live, authenticated, per-user data — none of
+      // it should ever be cached. Without this, the browser can revalidate
+      // a GET with If-None-Match and get back a bodiless 304. Response.ok is
+      // false for 304, so the block below was treating that as a failed
+      // request and throwing, even though the server had already run the
+      // real logic (e.g. re-checking a CamPay payment) — the UI just never
+      // saw the result, and looked stuck exactly where it last was.
+      cache: "no-store",
       body: body ? (isForm ? body : JSON.stringify(body)) : undefined,
     });
   } catch (networkErr) {

@@ -5,7 +5,7 @@ import { apiFetch } from "../../api/client";
 import { Card, Field, ErrorBanner, EmptyState, Avatar, StarRating, StarInput } from "../../components/ui";
 import { formatXAF } from "../../utils/currency";
 
-const CONSULTATION_FEE = 5000;
+const CONSULTATION_FEE = 25;
 const POLL_INTERVAL_MS = 3000;
 const POLL_TIMEOUT_MS = 90000;
 

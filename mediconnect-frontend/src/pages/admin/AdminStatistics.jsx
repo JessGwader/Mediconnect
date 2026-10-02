@@ -99,6 +99,43 @@ function RadarChart({ axes, size = 180 }) {
   );
 }
 
+// Animates a number counting up from 0 whenever its target value changes —
+// used throughout the stat tiles so the dashboard feels alive on load,
+// matching the "everything just goes up" feel requested for the finance-
+// dashboard look.
+function CountUp({ value, formatter, duration = 900 }) {
+  const [display, setDisplay] = useState(0);
+  const target = Number(value) || 0;
+  useEffect(() => {
+    let frame;
+    const start = performance.now();
+    const from = 0;
+    const tick = (now) => {
+      const progress = Math.min(1, (now - start) / duration);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      setDisplay(from + (target - from) * eased);
+      if (progress < 1) frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [target, duration]);
+  const rounded = Math.round(display);
+  return <>{formatter ? formatter(rounded) : rounded.toLocaleString()}</>;
+}
+
+// Picks a small icon for an AI insight by skimming its own wording — purely
+// cosmetic, no model call, so it works for both Gemini and rule-based text.
+function insightIcon(text) {
+  const s = text.toLowerCase();
+  if (s.includes("workload") || s.includes("overload") || s.includes("busy")) return "⚠️";
+  if (s.includes("increase") || s.includes("growth") || s.includes("up ")) return "📈";
+  if (s.includes("decrease") || s.includes("drop") || s.includes("down ")) return "📉";
+  if (s.includes("rating") || s.includes("review")) return "⭐";
+  if (s.includes("specialty") || s.includes("demand")) return "🩺";
+  if (s.includes("diagnosis") || s.includes("condition")) return "📋";
+  return "💡";
+}
+
 function TrendBadge({ trend, t }) {
   const up = trend.direction === "up";
   const flat = trend.direction === "flat";
@@ -179,11 +216,11 @@ export function AdminStatistics() {
       }}>
         <div>
           <div style={{ fontSize: 11.5, opacity: 0.7, marginBottom: 4 }}>{t("admin.total_revenue")}</div>
-          <div className="display" style={{ fontSize: 24, fontWeight: 600 }}>{formatXAF(data.totalRevenue)}</div>
+          <div className="display" style={{ fontSize: 24, fontWeight: 600 }}><CountUp value={data.totalRevenue} formatter={formatXAF} /></div>
         </div>
         <div>
           <div style={{ fontSize: 11.5, opacity: 0.7, marginBottom: 4 }}>{t("admin.booking_trend")}</div>
-          <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 4 }}>{data.bookingTrend.currentMonthCount}</div>
+          <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 4 }}><CountUp value={data.bookingTrend.currentMonthCount} /></div>
           <TrendBadge trend={data.bookingTrend} t={t} />
         </div>
         <div>
@@ -203,30 +240,29 @@ export function AdminStatistics() {
         </div>
       </div>
 
-      <div className="ai-panel" style={{ marginBottom: 14 }}>
+      <div className={`ai-panel${regenerating ? " generating" : ""}`} style={{ marginBottom: 14 }}>
         <div className="row-between">
           <div className="ai-head"><span>✨</span><span>{t("admin.ai_insights")}</span></div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <Pill tone={data.insightsSource === "gemini" ? "active" : "warning"}>
-              {data.insightsSource === "gemini" ? t("admin.insights_source_gemini") : t("admin.insights_source_fallback")}
-            </Pill>
             <button className="btn ghost small" disabled={regenerating} onClick={regenerateInsights}>
               {regenerating ? t("admin.generating_insights") : `✨ ${t("admin.generate_insights")}`}
             </button>
           </div>
         </div>
         {data.insights.map((insight, i) => (
-          <div key={i} className="ai-finding"><span>💡</span><span>{insight}</span></div>
+          <div key={i} className="ai-finding" style={{ animation: `ai-finding-in 0.4s ease both`, animationDelay: `${i * 90}ms` }}>
+            <span>{insightIcon(insight)}</span><span>{insight}</span>
+          </div>
         ))}
         <div className="ai-disclaimer">{data.disclaimer}</div>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginBottom: 14 }}>
-        <Card><div style={{ fontSize: 22, fontWeight: 700, color: "var(--ink)" }}>{data.counts.patients}</div><div style={{ fontSize: 12, color: "var(--slate)" }}>{t("admin.patients_label")}</div></Card>
-        <Card><div style={{ fontSize: 22, fontWeight: 700, color: "var(--ink)" }}>{data.counts.doctors}</div><div style={{ fontSize: 12, color: "var(--slate)" }}>{t("admin.doctors_label")}</div></Card>
-        <Card><div style={{ fontSize: 22, fontWeight: 700, color: "var(--ink)" }}>{data.counts.appointments}</div><div style={{ fontSize: 12, color: "var(--slate)" }}>{t("admin.appointments_label")}</div></Card>
-        <Card><div style={{ fontSize: 22, fontWeight: 700, color: "var(--sage)" }}>{data.counts.completed_appointments}</div><div style={{ fontSize: 12, color: "var(--slate)" }}>{t("admin.completed_label")}</div></Card>
-        <Card><div style={{ fontSize: 22, fontWeight: 700, color: "var(--red)" }}>{data.counts.cancelled_appointments}</div><div style={{ fontSize: 12, color: "var(--slate)" }}>{t("admin.cancelled_label")}</div></Card>
+        <Card><div style={{ fontSize: 22, fontWeight: 700, color: "var(--ink)" }}><CountUp value={data.counts.patients} /></div><div style={{ fontSize: 12, color: "var(--slate)" }}>{t("admin.patients_label")}</div></Card>
+        <Card><div style={{ fontSize: 22, fontWeight: 700, color: "var(--ink)" }}><CountUp value={data.counts.doctors} /></div><div style={{ fontSize: 12, color: "var(--slate)" }}>{t("admin.doctors_label")}</div></Card>
+        <Card><div style={{ fontSize: 22, fontWeight: 700, color: "var(--ink)" }}><CountUp value={data.counts.appointments} /></div><div style={{ fontSize: 12, color: "var(--slate)" }}>{t("admin.appointments_label")}</div></Card>
+        <Card><div style={{ fontSize: 22, fontWeight: 700, color: "var(--sage)" }}><CountUp value={data.counts.completed_appointments} /></div><div style={{ fontSize: 12, color: "var(--slate)" }}>{t("admin.completed_label")}</div></Card>
+        <Card><div style={{ fontSize: 22, fontWeight: 700, color: "var(--red)" }}><CountUp value={data.counts.cancelled_appointments} /></div><div style={{ fontSize: 12, color: "var(--slate)" }}>{t("admin.cancelled_label")}</div></Card>
       </div>
 
       <div className="dash-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
